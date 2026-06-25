@@ -380,7 +380,7 @@
       <div class="pulse" id="pulse-dot"></div>
       <span id="refresh-label">Loading…</span>
     </div>
-    <button id="refresh-btn" onclick="fetchDocuments(true)">↻ Refresh</button>
+    <button id="refresh-btn" onclick="loadAllIntoCache()">↻ Refresh</button>
   </div>
 </header>
 
@@ -447,15 +447,21 @@
 <script>
   // ── State ──────────────────────────────────────────────
   let apiPage      = 1;      // current page fetched from API
-  let apiTotal     = 0;      // total documents on server
+  let apiTotal      = 0;
   let apiTotalPages = 1;
-  let currentDocs  = [];     // docs on the current page
+  let apiPage       = 1;
+  let currentDocs   = [];
   let currentFilter = 'all';
   let currentSearch = '';
-  let refreshTimer = null;
-  let countdown    = CONFIG.refreshInterval;
-  let searching    = false;  // true while background search is running
-  let searchAbort  = null;   // AbortController for cancelling search
+  let refreshTimer  = null;
+  let countdown     = CONFIG.refreshInterval;
+  let searching     = false;
+  let searchAbort   = null;
+
+  // ── Cache: all documents loaded on startup ─────────────
+  let allDocs       = [];    // full cache of every document
+  let cacheReady    = false; // true once all pages loaded
+  let cacheAbort    = null;
 
   // ── Boot ──────────────────────────────────────────────
   window.addEventListener('DOMContentLoaded', () => {
@@ -466,14 +472,78 @@
       renderEmpty('API key not configured. See the warning above.');
       return;
     }
-    loadPage(1, true);
+    loadAllIntoCache();
   });
 
-  // ── Fetch one page from API (1 request) ───────────────
-  async function apiFetch(page) {
+  // ── Load ALL pages into cache, then show page 1 ───────
+  async function loadAllIntoCache() {
+    cacheReady  = false;
+    allDocs     = [];
+    cacheAbort  = new AbortController();
+    clearRefreshTimer();
+    renderLoading('Loading documents… page 1');
+    setBtn(true);
+
+    try {
+      // Fetch page 1 first to get total pages
+      const first = await apiFetchSignal(1, cacheAbort.signal);
+      apiTotalPages = first.total_pages || 1;
+      apiTotal      = first.total_count  || 0;
+      allDocs.push(...(first.documents || []));
+      updateStats(apiTotal, null, null);
+      setRefreshLabel(`Loading page 1 of ${apiTotalPages}…`);
+
+      // Fetch remaining pages with rate-limit-safe delay
+      for (let p = 2; p <= apiTotalPages; p++) {
+        if (cacheAbort.signal.aborted) return;
+        await sleep(1300);
+        if (cacheAbort.signal.aborted) return;
+        setRefreshLabel(`Loading page ${p} of ${apiTotalPages}…`);
+        renderLoading(`Loading documents… page ${p} of ${apiTotalPages}`);
+        const data = await apiFetchSignal(p, cacheAbort.signal);
+        allDocs.push(...(data.documents || []));
+        apiTotal = data.total_count || apiTotal;
+      }
+
+      cacheReady = true;
+      // Compute real stats from full cache
+      const completed = allDocs.filter(d => (d.status||'').toLowerCase() === 'completed').length;
+      const pending   = allDocs.filter(d => (d.status||'').toLowerCase() === 'pending').length;
+      updateStats(allDocs.length, completed, pending);
+
+      // Show page 1 from cache
+      showCachePage(1);
+      setRefreshLabel(`Updated ${timeNow()} — ${allDocs.length} documents loaded`);
+      setPulse(false);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      handleError(err);
+    } finally {
+      setBtn(false);
+      startCountdown();
+    }
+  }
+
+  // ── Show a page from cache ─────────────────────────────
+  function showCachePage(page) {
+    apiPage = page;
+    const start = (page - 1) * CONFIG.pageSize;
+    const slice = allDocs.slice(start, start + CONFIG.pageSize);
+    currentDocs   = slice;
+    currentFilter = 'all';
+    currentSearch = '';
+    document.getElementById('search').value = '';
+    document.querySelectorAll('.filter-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.filter === 'all'));
+    const totalPages = Math.ceil(allDocs.length / CONFIG.pageSize);
+    renderPageDocs(slice, page, totalPages, allDocs.length);
+  }
+
+  // ── Fetch one page from API ────────────────────────────
+  async function apiFetchSignal(page, signal) {
     const res = await fetch(
       `https://www.signwell.com/api/v1/documents/?page=${page}`,
-      { headers: { 'X-Api-Key': CONFIG.apiKey } }
+      { headers: { 'X-Api-Key': CONFIG.apiKey }, signal }
     );
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -484,127 +554,63 @@
     return res.json();
   }
 
-  // ── Load a specific page (browse mode) ────────────────
-  async function loadPage(page, showLoading) {
-    cancelSearch();
-    clearRefreshTimer();
-
-    if (showLoading) renderLoading();
-    setBtn(true);
-
-    try {
-      const data     = await apiFetch(page);
-      apiPage        = data.current_page || page;
-      apiTotal       = data.total_count  || 0;
-      apiTotalPages  = data.total_pages  || 1;
-      currentDocs    = data.documents    || [];
-      currentFilter  = 'all';
-      currentSearch  = '';
-      document.getElementById('search').value = '';
-      document.querySelectorAll('.filter-btn').forEach(b =>
-        b.classList.toggle('active', b.dataset.filter === 'all'));
-      updateStats(apiTotal, null, null);
-      renderPageDocs(currentDocs, apiPage, apiTotalPages, apiTotal);
-      setRefreshLabel(`Updated ${timeNow()}`);
-      setPulse(false);
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setBtn(false);
-      startCountdown();
-    }
+  // ── Load a specific page (from cache) ─────────────────
+  function loadPage(page) {
+    if (!cacheReady) return;
+    showCachePage(page);
+    setRefreshLabel(`Updated ${timeNow()} — ${allDocs.length} documents loaded`);
   }
 
-  // ── Filter by status (client-side on current page) ────
+  // ── Filter by status (instant, from cache) ────────────
   function setFilter(f) {
     currentFilter = f;
     currentSearch = '';
     document.getElementById('search').value = '';
     document.querySelectorAll('.filter-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.filter === f));
-    cancelSearch();
 
-    const filtered = applyStatusFilter(currentDocs, f);
-    if (filtered.length === 0) {
-      renderEmpty(`No ${f} documents on this page. Use Prev/Next to browse.`);
+    const source   = cacheReady ? allDocs : currentDocs;
+    const filtered = applyStatusFilter(source, f);
+    const totalPages = Math.ceil(filtered.length / CONFIG.pageSize);
+    const slice    = filtered.slice(0, CONFIG.pageSize);
+    if (slice.length === 0) {
+      renderEmpty(`No ${f} documents found.`);
     } else {
-      renderPageDocs(filtered, apiPage, apiTotalPages, apiTotal, `Filtered: ${f}`);
+      renderPageDocs(slice, 1, totalPages, filtered.length, `Filtered: ${f}`);
     }
   }
 
-  // ── Search across all pages ────────────────────────────
+  // ── Search (instant from cache) ───────────────────────
   let searchTimeout = null;
   function onSearch() {
     clearTimeout(searchTimeout);
     const q = document.getElementById('search').value.trim().toLowerCase();
     currentSearch = q;
-    if (!q) { loadPage(apiPage, false); return; }
-    // Debounce 400ms then start background search
-    searchTimeout = setTimeout(() => startSearch(q), 400);
+    if (!q) {
+      if (cacheReady) showCachePage(apiPage);
+      return;
+    }
+    if (!cacheReady) {
+      renderEmpty('Still loading documents — please wait and try again.');
+      return;
+    }
+    searchTimeout = setTimeout(() => runInstantSearch(q), 200);
   }
 
-  async function startSearch(q) {
-    cancelSearch();
-    searchAbort = new AbortController();
-    searching   = true;
+  function runInstantSearch(q) {
+    const results = allDocs.filter(doc => {
+      const name   = (doc.name || '').toLowerCase();
+      const emails = (doc.recipients || []).map(r => (r.email||'').toLowerCase());
+      const names  = (doc.recipients || []).map(r => (r.name ||'').toLowerCase());
+      return name.includes(q) || emails.some(e => e.includes(q)) || names.some(n => n.includes(q));
+    });
 
-    renderLoading(`Searching all documents for "${q}"…`);
-
-    const results = [];
-    try {
-      for (let p = 1; p <= apiTotalPages; p++) {
-        if (searchAbort.signal.aborted) return;
-
-        let res;
-        while (true) {
-          res = await fetch(
-            `https://www.signwell.com/api/v1/documents/?page=${p}`,
-            { headers: { 'X-Api-Key': CONFIG.apiKey }, signal: searchAbort.signal }
-          );
-          if (res.status === 429) {
-            setRefreshLabel(`Rate limited — waiting 65s before continuing search…`);
-            await sleep(65000);
-            continue;
-          }
-          break;
-        }
-        if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message||`HTTP ${res.status}`); }
-        const data = await res.json();
-        const docs = data.documents || [];
-        apiTotalPages = data.total_pages || apiTotalPages;
-
-        for (const doc of docs) {
-          const name   = (doc.name || '').toLowerCase();
-          const emails = (doc.recipients || []).map(r => (r.email||'').toLowerCase());
-          const names  = (doc.recipients || []).map(r => (r.name ||'').toLowerCase());
-          if (name.includes(q) || emails.some(e => e.includes(q)) || names.some(n => n.includes(q))) {
-            results.push(doc);
-          }
-        }
-
-        // Show live progress
-        setRefreshLabel(`Searching page ${p} of ${apiTotalPages}… (${results.length} found)`);
-
-        // Rate-limit friendly: pause 2s between requests (30 req/min, safely under 50/min limit)
-        if (p < apiTotalPages && !searchAbort.signal.aborted) {
-          await sleep(2000);
-        }
-      }
-
-      if (!searchAbort.signal.aborted) {
-        if (results.length === 0) {
-          renderEmpty(`No documents found for "${q}"`);
-        } else {
-          renderSearchResults(results, q);
-        }
-        setRefreshLabel(`Search complete — ${results.length} result(s) for "${q}"`);
-      }
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-      handleError(err);
-    } finally {
-      searching = false;
+    if (results.length === 0) {
+      renderEmpty(`No documents found for "${q}"`);
+    } else {
+      renderSearchResults(results, q);
     }
+    setRefreshLabel(`${results.length} result(s) for "${q}"`);
   }
 
   function cancelSearch() {
@@ -638,7 +644,7 @@
     tbody.innerHTML = docs.map(docRow).join('');
     pag.style.display = 'flex';
     pag.innerHTML = `<span>${docs.length} result(s) for "${esc(q)}"</span>
-      <div class="page-btns"><button class="page-btn" onclick="loadPage(${apiPage}, false)">✕ Clear search</button></div>`;
+      <div class="page-btns"><button class="page-btn" onclick="document.getElementById('search').value='';onSearch()">✕ Clear search</button></div>`;
   }
 
   function docRow(doc) {
@@ -759,7 +765,7 @@
     refreshTimer = setInterval(() => {
       countdown--;
       if (!searching) setRefreshLabel(`Next refresh in ${countdown}s`);
-      if (countdown <= 0) { clearRefreshTimer(); loadPage(apiPage, false); }
+      if (countdown <= 0) { clearRefreshTimer(); loadAllIntoCache(); }
     }, 1000);
   }
 
