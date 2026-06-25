@@ -576,9 +576,9 @@
         // Show live progress
         setRefreshLabel(`Searching page ${p} of ${apiTotalPages}… (${results.length} found)`);
 
-        // Rate-limit friendly: pause 1.3s between requests
+        // Rate-limit friendly: pause 2s between requests (30 req/min, safely under 50/min limit)
         if (p < apiTotalPages && !searchAbort.signal.aborted) {
-          await sleep(1300);
+          await sleep(2000);
         }
       }
 
