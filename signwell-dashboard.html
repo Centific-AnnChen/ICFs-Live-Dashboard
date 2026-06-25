@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ICF Live Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f6fb;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1a202c;
+      --muted: #718096;
+      --primary: #4f46e5;
+      --primary-light: #eef2ff;
+      --green: #16a34a;
+      --green-bg: #dcfce7;
+      --yellow: #b45309;
+      --yellow-bg: #fef9c3;
+      --red: #dc2626;
+      --red-bg: #fee2e2;
+      --gray: #4b5563;
+      --gray-bg: #f3f4f6;
+      --radius: 10px;
+      --shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      box-shadow: var(--shadow);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--primary);
+    }
+
+    .logo svg { width: 28px; height: 28px; }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    #refresh-status { display: flex; align-items: center; gap: 6px; }
+
+    .pulse {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    .pulse.error { background: var(--red); animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    #refresh-btn {
+      background: var(--primary-light);
+      color: var(--primary);
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+
+    #refresh-btn:hover { background: #dbeafe; }
+    #refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Main ── */
+    main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    /* ── Stats ── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 8px; }
+    .stat-value { font-size: 28px; font-weight: 700; }
+    .stat-value.green { color: var(--green); }
+    .stat-value.yellow { color: var(--yellow); }
+    .stat-value.red { color: var(--red); }
+    .stat-value.blue { color: var(--primary); }
+
+    /* ── Search + Filters ── */
+    .toolbar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .search-wrap {
+      flex: 1;
+      min-width: 240px;
+      position: relative;
+    }
+
+    .search-wrap svg {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      width: 16px; height: 16px;
+    }
+
+    #search {
+      width: 100%;
+      padding: 9px 12px 9px 34px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-size: 14px;
+      background: var(--bg);
+      transition: border-color 0.15s, box-shadow 0.15s;
+      outline: none;
+    }
+
+    #search:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+
+    .filter-group { display: flex; gap: 8px; }
+
+    .filter-btn {
+      padding: 8px 14px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+      color: var(--muted);
+      transition: all 0.15s;
+    }
+
+    .filter-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .filter-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* ── Table ── */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    thead th {
+      background: #f8fafc;
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f8fafc; }
+
+    td { padding: 13px 16px; vertical-align: top; }
+
+    .doc-name {
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 3px;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .doc-id { font-size: 11px; color: var(--muted); font-family: monospace; }
+
+    .recipients { display: flex; flex-direction: column; gap: 4px; }
+
+    .recipient {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+
+    .recipient-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .recipient-dot.signed { background: var(--green); }
+    .recipient-dot.pending { background: #f59e0b; }
+    .recipient-dot.declined { background: var(--red); }
+
+    .recipient-email { color: var(--muted); }
+    .recipient-name { font-weight: 500; }
+
+    /* ── Status Badge ── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge.completed { background: var(--green-bg); color: var(--green); }
+    .badge.pending   { background: var(--yellow-bg); color: var(--yellow); }
+    .badge.draft     { background: var(--gray-bg);   color: var(--gray); }
+    .badge.declined  { background: var(--red-bg);    color: var(--red); }
+    .badge.expired   { background: var(--gray-bg);   color: var(--gray); }
+
+    .date-cell { font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+    /* ── Empty / Loading / Error ── */
+    .state-row td {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto 14px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-icon { font-size: 32px; margin-bottom: 12px; }
+    .state-row p { font-size: 15px; margin-bottom: 6px; }
+    .state-row small { font-size: 13px; }
+
+    /* ── Pagination ── */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--muted);
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .page-btns { display: flex; gap: 6px; }
+
+    .page-btn {
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .page-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+    .page-btn:disabled { opacity: 0.4; cursor: default; }
+    .page-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* ── Config warning ── */
+    #config-warning {
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #92400e;
+      display: none;
+    }
+
+    #config-warning strong { display: block; margin-bottom: 4px; }
+
+    @media (max-width: 700px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .toolbar { flex-direction: column; align-items: stretch; }
+      .filter-group { flex-wrap: wrap; }
+      table { font-size: 13px; }
+      td, th { padding: 10px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     CONFIGURATION — update your API key here
+     ══════════════════════════════════════════ -->
+<script>
+  const CONFIG = {
+    apiKey: 'YWNjZXNzOmIzMTFlY2I1MWI5MzgwMThkMjQ3ZDQ1NjA0OWI0ZGUy',
+    refreshInterval: 300,              // seconds between auto-refresh (5 minutes)
+    pageSize: 20,                      // documents per page
+  };
+</script>
+<!-- ═══════════════════════════════════════ -->
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="28" height="28" rx="6" fill="#4f46e5"/>
+      <path d="M7 14.5l4.5 4.5 9.5-10" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    ICF Live Dashboard
+  </div>
+  <div class="header-right">
+    <div id="refresh-status">
+      <div class="pulse" id="pulse-dot"></div>
+      <span id="refresh-label">Loading…</span>
+    </div>
+    <button id="refresh-btn" onclick="fetchDocuments(true)">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div id="config-warning">
+    <strong>⚠ API key not configured</strong>
+    Open this file in a text editor and replace <code>YOUR_SIGNWELL_API_KEY</code> with your actual Signwell API key.
+  </div>
+
+  <!-- Stats row -->
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-label">Total Documents</div>
+      <div class="stat-value blue" id="stat-total">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Completed</div>
+      <div class="stat-value green" id="stat-completed">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Pending Signature</div>
+      <div class="stat-value yellow" id="stat-pending">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Declined / Expired</div>
+      <div class="stat-value red" id="stat-other">—</div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+      <input id="search" type="text" placeholder="Search by email address or document name…" oninput="onSearch()" />
+    </div>
+    <div class="filter-group">
+      <button class="filter-btn active" data-filter="all"      onclick="setFilter('all')">All</button>
+      <button class="filter-btn"        data-filter="pending"  onclick="setFilter('pending')">Pending</button>
+      <button class="filter-btn"        data-filter="completed" onclick="setFilter('completed')">Completed</button>
+      <button class="filter-btn"        data-filter="other"    onclick="setFilter('other')">Other</button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table id="doc-table">
+      <thead>
+        <tr>
+          <th>Document</th>
+          <th>Recipients</th>
+          <th>Status</th>
+          <th>Sent</th>
+          <th>Completed</th>
+        </tr>
+      </thead>
+      <tbody id="table-body">
+        <tr class="state-row"><td colspan="5"><div class="spinner"></div><p>Loading documents…</p></td></tr>
+      </tbody>
+    </table>
+    <div class="pagination" id="pagination" style="display:none"></div>
+  </div>
+</main>
+
+<script>
+  // ── State ──────────────────────────────────────────────
+  let apiPage      = 1;      // current page fetched from API
+  let apiTotal     = 0;      // total documents on server
+  let apiTotalPages = 1;
+  let currentDocs  = [];     // docs on the current page
+  let currentFilter = 'all';
+  let currentSearch = '';
+  let refreshTimer = null;
+  let countdown    = CONFIG.refreshInterval;
+  let searching    = false;  // true while background search is running
+  let searchAbort  = null;   // AbortController for cancelling search
+
+  // ── Boot ──────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    if (CONFIG.apiKey === 'YOUR_SIGNWELL_API_KEY') {
+      document.getElementById('config-warning').style.display = 'block';
+      document.getElementById('pulse-dot').classList.add('error');
+      document.getElementById('refresh-label').textContent = 'API key missing';
+      renderEmpty('API key not configured. See the warning above.');
+      return;
+    }
+    loadPage(1, true);
+  });
+
+  // ── Fetch one page from API (1 request) ───────────────
+  async function apiFetch(page) {
+    const res = await fetch(
+      `https://www.signwell.com/api/v1/documents/?page=${page}`,
+      { headers: { 'X-Api-Key': CONFIG.apiKey } }
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err  = new Error(body.message || `HTTP ${res.status}`);
+      if (res.status === 429) err.retryAfter = 65;
+      throw err;
+    }
+    return res.json();
+  }
+
+  // ── Load a specific page (browse mode) ────────────────
+  async function loadPage(page, showLoading) {
+    cancelSearch();
+    clearRefreshTimer();
+
+    if (showLoading) renderLoading();
+    setBtn(true);
+
+    try {
+      const data     = await apiFetch(page);
+      apiPage        = data.current_page || page;
+      apiTotal       = data.total_count  || 0;
+      apiTotalPages  = data.total_pages  || 1;
+      currentDocs    = data.documents    || [];
+      currentFilter  = 'all';
+      currentSearch  = '';
+      document.getElementById('search').value = '';
+      document.querySelectorAll('.filter-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.filter === 'all'));
+      updateStats(apiTotal, null, null);
+      renderPageDocs(currentDocs, apiPage, apiTotalPages, apiTotal);
+      setRefreshLabel(`Updated ${timeNow()}`);
+      setPulse(false);
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setBtn(false);
+      startCountdown();
+    }
+  }
+
+  // ── Filter by status (client-side on current page) ────
+  function setFilter(f) {
+    currentFilter = f;
+    currentSearch = '';
+    document.getElementById('search').value = '';
+    document.querySelectorAll('.filter-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.filter === f));
+    cancelSearch();
+
+    const filtered = applyStatusFilter(currentDocs, f);
+    if (filtered.length === 0) {
+      renderEmpty(`No ${f} documents on this page. Use Prev/Next to browse.`);
+    } else {
+      renderPageDocs(filtered, apiPage, apiTotalPages, apiTotal, `Filtered: ${f}`);
+    }
+  }
+
+  // ── Search across all pages ────────────────────────────
+  let searchTimeout = null;
+  function onSearch() {
+    clearTimeout(searchTimeout);
+    const q = document.getElementById('search').value.trim().toLowerCase();
+    currentSearch = q;
+    if (!q) { loadPage(apiPage, false); return; }
+    // Debounce 400ms then start background search
+    searchTimeout = setTimeout(() => startSearch(q), 400);
+  }
+
+  async function startSearch(q) {
+    cancelSearch();
+    searchAbort = new AbortController();
+    searching   = true;
+
+    renderLoading(`Searching all documents for "${q}"…`);
+
+    const results = [];
+    try {
+      for (let p = 1; p <= apiTotalPages; p++) {
+        if (searchAbort.signal.aborted) return;
+
+        const res = await fetch(
+          `https://www.signwell.com/api/v1/documents/?page=${p}`,
+          { headers: { 'X-Api-Key': CONFIG.apiKey }, signal: searchAbort.signal }
+        );
+        if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message||`HTTP ${res.status}`); }
+        const data = await res.json();
+        const docs = data.documents || [];
+        apiTotalPages = data.total_pages || apiTotalPages;
+
+        for (const doc of docs) {
+          const name   = (doc.name || '').toLowerCase();
+          const emails = (doc.recipients || []).map(r => (r.email||'').toLowerCase());
+          const names  = (doc.recipients || []).map(r => (r.name ||'').toLowerCase());
+          if (name.includes(q) || emails.some(e => e.includes(q)) || names.some(n => n.includes(q))) {
+            results.push(doc);
+          }
+        }
+
+        // Show live progress
+        setRefreshLabel(`Searching page ${p} of ${apiTotalPages}… (${results.length} found)`);
+
+        // Rate-limit friendly: pause 1.3s between requests
+        if (p < apiTotalPages && !searchAbort.signal.aborted) {
+          await sleep(1300);
+        }
+      }
+
+      if (!searchAbort.signal.aborted) {
+        if (results.length === 0) {
+          renderEmpty(`No documents found for "${q}"`);
+        } else {
+          renderSearchResults(results, q);
+        }
+        setRefreshLabel(`Search complete — ${results.length} result(s) for "${q}"`);
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      handleError(err);
+    } finally {
+      searching = false;
+    }
+  }
+
+  function cancelSearch() {
+    if (searchAbort) { searchAbort.abort(); searchAbort = null; }
+    searching = false;
+    clearTimeout(searchTimeout);
+  }
+
+  // ── Render helpers ────────────────────────────────────
+  function renderPageDocs(docs, page, totalPages, totalCount, filterLabel) {
+    const tbody = document.getElementById('table-body');
+    const pag   = document.getElementById('pagination');
+
+    if (!docs.length) {
+      renderEmpty('No documents on this page.');
+      return;
+    }
+
+    tbody.innerHTML = docs.map(docRow).join('');
+
+    pag.style.display = 'flex';
+    const label = filterLabel ? `${filterLabel} · ` : '';
+    const info  = `${label}Page ${page} of ${totalPages} (${totalCount} total)`;
+    const btns  = buildPageButtons(page, totalPages);
+    pag.innerHTML = `<span>${info}</span><div class="page-btns">${btns}</div>`;
+  }
+
+  function renderSearchResults(docs, q) {
+    const tbody = document.getElementById('table-body');
+    const pag   = document.getElementById('pagination');
+    tbody.innerHTML = docs.map(docRow).join('');
+    pag.style.display = 'flex';
+    pag.innerHTML = `<span>${docs.length} result(s) for "${esc(q)}"</span>
+      <div class="page-btns"><button class="page-btn" onclick="loadPage(${apiPage}, false)">✕ Clear search</button></div>`;
+  }
+
+  function docRow(doc) {
+    const badge  = statusBadge(doc.status);
+    const sent   = formatDate(doc.created_at);
+    const done   = doc.completed_at ? formatDate(doc.completed_at) : '—';
+    const recips = (doc.recipients || []).map(recipientChip).join('');
+    return `
+      <tr>
+        <td>
+          <div class="doc-name" title="${esc(doc.name||'Untitled')}">${esc(doc.name||'Untitled')}</div>
+          <div class="doc-id">${esc(doc.id||'')}</div>
+        </td>
+        <td><div class="recipients">${recips||'<span style="color:var(--muted);font-size:13px">—</span>'}</div></td>
+        <td>${badge}</td>
+        <td class="date-cell">${sent}</td>
+        <td class="date-cell">${done}</td>
+      </tr>`;
+  }
+
+  function recipientChip(r) {
+    const signed   = !!r.completed_at;
+    const declined = !!r.declined_at;
+    const cls   = declined ? 'declined' : signed ? 'signed' : 'pending';
+    const label = declined ? 'Declined'  : signed ? 'Signed'  : 'Pending';
+    return `
+      <div class="recipient" title="${label}">
+        <div class="recipient-dot ${cls}"></div>
+        <span class="recipient-name">${esc(r.name||'')}</span>
+        <span class="recipient-email">&lt;${esc(r.email||'')}&gt;</span>
+      </div>`;
+  }
+
+  function statusBadge(status) {
+    const map = {
+      completed: ['completed', '✓ Completed'],
+      pending:   ['pending',   '⏳ Pending'],
+      draft:     ['draft',     '✎ Draft'],
+      declined:  ['declined',  '✕ Declined'],
+      expired:   ['expired',   '⌛ Expired'],
+    };
+    const [cls, label] = map[(status||'').toLowerCase()] || ['draft', status||'Unknown'];
+    return `<span class="badge ${cls}">${label}</span>`;
+  }
+
+  function applyStatusFilter(docs, f) {
+    if (f === 'all') return docs;
+    return docs.filter(d => {
+      const s = (d.status||'').toLowerCase();
+      if (f === 'completed') return s === 'completed';
+      if (f === 'pending')   return s === 'pending';
+      return s !== 'completed' && s !== 'pending';
+    });
+  }
+
+  function buildPageButtons(cur, total) {
+    let html = `<button class="page-btn" onclick="loadPage(${cur-1},true)" ${cur===1?'disabled':''}>‹ Prev</button>`;
+    const pages = pagesToShow(cur, total);
+    for (const p of pages) {
+      if (p === '…') html += `<button class="page-btn" disabled>…</button>`;
+      else html += `<button class="page-btn ${p===cur?'active':''}" onclick="loadPage(${p},true)">${p}</button>`;
+    }
+    html += `<button class="page-btn" onclick="loadPage(${cur+1},true)" ${cur===total?'disabled':''}>Next ›</button>`;
+    return html;
+  }
+
+  function pagesToShow(cur, total) {
+    if (total <= 7) return Array.from({length: total}, (_,i) => i+1);
+    if (cur <= 4)        return [1,2,3,4,5,'…',total];
+    if (cur >= total-3)  return [1,'…',total-4,total-3,total-2,total-1,total];
+    return [1,'…',cur-1,cur,cur+1,'…',total];
+  }
+
+  function renderLoading(msg) {
+    document.getElementById('table-body').innerHTML =
+      `<tr class="state-row"><td colspan="5"><div class="spinner"></div><p>${msg||'Loading documents…'}</p></td></tr>`;
+    document.getElementById('pagination').style.display = 'none';
+  }
+
+  function renderError(msg) {
+    document.getElementById('table-body').innerHTML =
+      `<tr class="state-row"><td colspan="5">
+        <div class="error-icon">⚠️</div>
+        <p>Could not load documents</p>
+        <small>${esc(msg)}</small>
+      </td></tr>`;
+    document.getElementById('pagination').style.display = 'none';
+  }
+
+  function renderEmpty(msg) {
+    document.getElementById('table-body').innerHTML =
+      `<tr class="state-row"><td colspan="5"><p>${esc(msg)}</p></td></tr>`;
+    document.getElementById('pagination').style.display = 'none';
+  }
+
+  // ── Stats ─────────────────────────────────────────────
+  function updateStats(total, completed, pending) {
+    document.getElementById('stat-total').textContent     = total ?? '—';
+    document.getElementById('stat-completed').textContent = completed ?? '—';
+    document.getElementById('stat-pending').textContent   = pending ?? '—';
+    document.getElementById('stat-other').textContent     = '—';
+  }
+
+  // ── Error handler ─────────────────────────────────────
+  function handleError(err) {
+    console.error(err);
+    setPulse(true);
+    const retryIn = err.retryAfter || CONFIG.refreshInterval;
+    setRefreshLabel(`Error — retrying in ${retryIn}s`);
+    renderError(err.retryAfter
+      ? 'Too many API requests. Waiting 65s for rate limit to reset…'
+      : err.message);
+  }
+
+  // ── Auto-refresh ──────────────────────────────────────
+  function startCountdown(delay) {
+    countdown = delay || CONFIG.refreshInterval;
+    refreshTimer = setInterval(() => {
+      countdown--;
+      if (!searching) setRefreshLabel(`Next refresh in ${countdown}s`);
+      if (countdown <= 0) { clearRefreshTimer(); loadPage(apiPage, false); }
+    }, 1000);
+  }
+
+  function clearRefreshTimer() {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+
+  // ── UI helpers ────────────────────────────────────────
+  function setBtn(disabled) {
+    document.getElementById('refresh-btn').disabled = disabled;
+  }
+
+  function setPulse(error) {
+    document.getElementById('pulse-dot').classList.toggle('error', error);
+  }
+
+  function setRefreshLabel(text) {
+    document.getElementById('refresh-label').textContent = text;
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })
+         + ' ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+  }
+
+  function timeNow() {
+    return new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  }
+
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+</script>
+</body>
+</html>
