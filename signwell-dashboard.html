@@ -555,10 +555,19 @@
       for (let p = 1; p <= apiTotalPages; p++) {
         if (searchAbort.signal.aborted) return;
 
-        const res = await fetch(
-          `https://www.signwell.com/api/v1/documents/?page=${p}`,
-          { headers: { 'X-Api-Key': CONFIG.apiKey }, signal: searchAbort.signal }
-        );
+        let res;
+        while (true) {
+          res = await fetch(
+            `https://www.signwell.com/api/v1/documents/?page=${p}`,
+            { headers: { 'X-Api-Key': CONFIG.apiKey }, signal: searchAbort.signal }
+          );
+          if (res.status === 429) {
+            setRefreshLabel(`Rate limited — waiting 65s before continuing search…`);
+            await sleep(65000);
+            continue;
+          }
+          break;
+        }
         if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message||`HTTP ${res.status}`); }
         const data = await res.json();
         const docs = data.documents || [];
